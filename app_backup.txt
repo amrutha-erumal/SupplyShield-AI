@@ -1,0 +1,453 @@
+
+import os
+import joblib
+import pandas as pd
+import streamlit as st
+import plotly.express as px
+
+st.set_page_config(
+    page_title="SupplyShield AI",
+    page_icon="🛡️",
+    layout="wide"
+)
+
+MODEL_PATH = "models/supplier_risk_model.joblib"
+
+st.title("🛡️ SupplyShield AI")
+st.subheader("Predict. Prevent. Protect.")
+st.caption("AI-powered supply chain risk monitoring")
+
+if not os.path.exists(MODEL_PATH):
+    st.error("AI model not found. Run: python train_model.py")
+    st.stop()
+
+saved = joblib.load(MODEL_PATH)
+model = saved["model"]
+features = saved["features"]
+
+# Sample supplier records for the prototype
+data = pd.DataFrame({
+    "Supplier": [
+        "Alpha Components",
+        "Nova Materials",
+        "Prime Logistics",
+        "Vertex Electronics",
+        "Apex Industries"
+    ],
+    "lead_time_days": [5, 25, 12, 20, 4],
+    "supplier_delay_rate": [0.10, 0.70, 0.25, 0.55, 0.08],
+    "order_volume": [200, 800, 350, 650, 150],
+    "inventory_days": [20, 2, 12, 4, 25],
+    "weather_risk": [0.10, 0.70, 0.20, 0.60, 0.10],
+    "transport_risk": [0.10, 0.80, 0.30, 0.70, 0.10]
+})
+
+# Obtain predictions from the trained model
+data["Delay Risk (%)"] = (
+    model.predict_proba(data[features])[:, 1] * 100
+).round(1)
+
+def risk_level(score):
+    if score >= 65:
+        return "High"
+    if score >= 40:
+        return "Medium"
+    return "Low"
+
+data["Risk Level"] = data["Delay Risk (%)"].apply(risk_level)
+
+# Top-level metrics
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric("Suppliers Monitored", len(data))
+col2.metric("High-Risk Suppliers", int((data["Risk Level"] == "High").sum()))
+col3.metric("Medium-Risk Suppliers", int((data["Risk Level"] == "Medium").sum()))
+col4.metric("Average Delay Risk", f'{data["Delay Risk (%)"].mean():.1f}%')
+
+st.divider()
+
+# Risk chart
+st.subheader("📊 Supplier Risk Overview")
+
+fig = px.bar(
+    data.sort_values("Delay Risk (%)", ascending=False),
+    x="Supplier",
+    y="Delay Risk (%)",
+    color="Delay Risk (%)",
+    color_continuous_scale="RdYlGn_r",
+    range_y=[0, 100],
+    text="Delay Risk (%)",
+    hover_data=["Risk Level", "lead_time_days", "inventory_days"]
+)
+
+fig.update_layout(
+    xaxis_title="Supplier",
+    yaxis_title="Predicted delay probability (%)"
+)
+
+st.plotly_chart(fig, width="stretch")
+
+# Supplier table and filter
+st.subheader("🏭 Supplier Intelligence")
+
+risk_filter = st.selectbox(
+    "Filter by risk",
+    ["All", "High", "Medium", "Low"]
+)
+
+filtered = data.copy()
+
+if risk_filter != "All":
+    filtered = data[data["Risk Level"] == risk_filter]
+
+display_columns = [
+    "Supplier",
+    "lead_time_days",
+    "inventory_days",
+    "Delay Risk (%)",
+    "Risk Level"
+]
+
+st.dataframe(
+    filtered[display_columns],
+    width="stretch",
+    hide_index=True
+)
+
+# Risk alerts
+st.subheader("🚨 Risk Alerts")
+
+high_risk = data[data["Risk Level"] == "High"]
+
+if high_risk.empty:
+    st.success("No suppliers currently cross the high-risk threshold.")
+else:
+    for _, supplier in high_risk.iterrows():
+        st.warning(
+            f'{supplier["Supplier"]}: '
+            f'{supplier["Delay Risk (%)"]}% model-estimated delay risk. '
+            "Review inventory and alternative suppliers."
+        )
+
+# Interactive what-if simulator
+st.divider()
+st.subheader("🧪 Supplier Risk Simulator")
+st.write("Change the conditions to see how the model's risk estimate changes.")
+
+with st.form("risk_simulator"):
+    a, b = st.columns(2)
+
+    with a:
+        lead_time = st.slider("Expected lead time (days)", 1, 45, 15)
+        delay_rate = st.slider("Historical supplier delay rate (%)", 0, 100, 30)
+        order_volume = st.number_input(
+            "Order volume (units)", min_value=1, max_value=10000, value=500
+        )
+
+    with b:
+        inventory_days = st.slider("Current inventory coverage (days)", 0, 45, 10)
+        weather_risk = st.slider("Weather risk (%)", 0, 100, 20)
+        transport_risk = st.slider("Transport disruption risk (%)", 0, 100, 25)
+
+    submitted = st.form_submit_button("Predict Supplier Risk")
+
+if submitted:
+    scenario = pd.DataFrame([{
+        "lead_time_days": lead_time,
+        "supplier_delay_rate": delay_rate / 100,
+        "order_volume": order_volume,
+        "inventory_days": inventory_days,
+        "weather_risk": weather_risk / 100,
+        "transport_risk": transport_risk / 100
+    }])[features]
+
+    score = float(model.predict_proba(scenario)[0, 1] * 100)
+    level = risk_level(score)
+
+    st.metric("Model-estimated delay probability", f"{score:.1f}%")
+    st.write(f"**Risk category:** {level}")
+
+    if level == "High":
+        st.error("Suggested action: urgently review stock, supplier alternatives and delivery options.")
+    elif level == "Medium":
+        st.warning("Suggested action: confirm the delivery date and prepare a contingency plan.")
+    else:
+        st.success("Suggested action: continue monitoring and maintain normal inventory checks.")
+
+st.caption(
+    "Hackathon prototype: supplier records and training data are synthetic. "
+    "Risk scores are model estimates, not verified real-world probabilities. "
+    "Recommendations require human review."
+)
+
+# ============================================================
+# STAGE 7: SMART RECOVERY RECOMMENDATIONS
+# ============================================================
+
+st.divider()
+st.title("🧠 Smart Recovery Planner")
+st.write(
+    "Compare supplier recovery strategies by estimated cost, "
+    "delivery time, inventory availability, and production impact."
+)
+
+st.info(
+    "Demo mode: all supplier options, costs, capacities, and "
+    "lead times below are illustrative assumptions. "
+    "They are not live quotations or connected SAP data."
+)
+
+with st.form("recovery_planner"):
+    st.subheader("1. Business requirements")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        required_units = st.number_input(
+            "Units required",
+            min_value=1,
+            max_value=100000,
+            value=500,
+            step=50
+        )
+
+    with c2:
+        stockout_days = st.number_input(
+            "Days until inventory runs out",
+            min_value=0,
+            max_value=365,
+            value=3
+        )
+
+    with c3:
+        disruption_cost = st.number_input(
+            "Production disruption cost per day (₹)",
+            min_value=0,
+            max_value=100000000,
+            value=25000,
+            step=5000
+        )
+
+    st.subheader("2. Original supplier")
+
+    original_lead = st.number_input(
+        "Original supplier delivery time (days)",
+        min_value=0,
+        max_value=365,
+        value=7
+    )
+
+    st.subheader("3. Alternative supplier")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        alt_lead = st.number_input(
+            "Alternative delivery time (days)",
+            min_value=0,
+            max_value=365,
+            value=2
+        )
+
+    with c2:
+        alt_capacity = st.number_input(
+            "Available alternative units",
+            min_value=0,
+            max_value=100000,
+            value=700
+        )
+
+    with c3:
+        alt_premium = st.number_input(
+            "Extra cost per unit (₹)",
+            min_value=0,
+            max_value=1000000,
+            value=40
+        )
+
+    alt_transport = st.number_input(
+        "Alternative supplier transport fee (₹)",
+        min_value=0,
+        max_value=10000000,
+        value=5000,
+        step=1000
+    )
+
+    st.subheader("4. Inventory transfer")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        transfer_units = st.number_input(
+            "Units available at another warehouse",
+            min_value=0,
+            max_value=100000,
+            value=600
+        )
+
+    with c2:
+        transfer_lead = st.number_input(
+            "Transfer delivery time (days)",
+            min_value=0,
+            max_value=365,
+            value=1
+        )
+
+    with c3:
+        transfer_unit_cost = st.number_input(
+            "Transfer cost per unit (₹)",
+            min_value=0,
+            max_value=100000,
+            value=10
+        )
+
+    transfer_fee = st.number_input(
+        "Fixed transfer fee (₹)",
+        min_value=0,
+        max_value=10000000,
+        value=2000,
+        step=500
+    )
+
+    submitted_recovery = st.form_submit_button(
+        "🔍 Compare Recovery Options",
+        width="stretch"
+    )
+
+
+if submitted_recovery:
+    # Estimate disruption only when delivery arrives
+    # after current inventory is expected to run out.
+    def disruption_expense(delivery_days):
+        late_days = max(0, delivery_days - stockout_days)
+        return late_days * disruption_cost
+
+    # Option A: wait for original supplier
+    original_cost = disruption_expense(original_lead)
+
+    # Option B: use alternative supplier
+    alt_available = alt_capacity >= required_units
+    alt_cost = (
+        required_units * alt_premium
+        + alt_transport
+        + disruption_expense(alt_lead)
+    )
+
+    # Option C: transfer stock from another warehouse
+    transfer_available = transfer_units >= required_units
+    transfer_cost = (
+        required_units * transfer_unit_cost
+        + transfer_fee
+        + disruption_expense(transfer_lead)
+    )
+
+    options = [
+        {
+            "Option": "A — Wait for original supplier",
+            "Delivery (days)": original_lead,
+            "Available units": "Original order",
+            "Extra recovery cost (₹)": original_cost,
+            "Can meet stockout deadline": original_lead <= stockout_days,
+            "Feasible": True
+        },
+        {
+            "Option": "B — Alternative supplier",
+            "Delivery (days)": alt_lead,
+            "Available units": alt_capacity,
+            "Extra recovery cost (₹)": alt_cost,
+            "Can meet stockout deadline": alt_lead <= stockout_days,
+            "Feasible": alt_available
+        },
+        {
+            "Option": "C — Transfer warehouse stock",
+            "Delivery (days)": transfer_lead,
+            "Available units": transfer_units,
+            "Extra recovery cost (₹)": transfer_cost,
+            "Can meet stockout deadline": transfer_lead <= stockout_days,
+            "Feasible": transfer_available
+        }
+    ]
+
+    results = pd.DataFrame(options)
+
+    st.divider()
+    st.subheader("📊 Recovery comparison")
+
+    st.dataframe(
+        results,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Extra recovery cost (₹)": st.column_config.NumberColumn(
+                "Estimated extra cost (₹)",
+                format="₹%,.0f"
+            )
+        }
+    )
+
+    # Exclude options that lack enough units.
+    feasible = results[results["Feasible"]].copy()
+
+    # Prefer options that meet the stockout deadline.
+    on_time = feasible[
+        feasible["Can meet stockout deadline"]
+    ].copy()
+
+    if not on_time.empty:
+        ranked = on_time.sort_values("Extra recovery cost (₹)")
+        best = ranked.iloc[0]
+
+        st.success(
+            f"Recommended option: {best['Option']}"
+        )
+
+        st.metric(
+            "Estimated extra recovery cost",
+            f"₹{best['Extra recovery cost (₹)']:,.0f}"
+        )
+
+        st.write(
+            f"Expected delivery: {best['Delivery (days)']} day(s). "
+            "This option has sufficient units and meets the "
+            "specified stockout deadline at the lowest estimated "
+            "additional cost among the on-time options."
+        )
+
+    elif not feasible.empty:
+        ranked = feasible.sort_values("Extra recovery cost (₹)")
+        best = ranked.iloc[0]
+
+        st.warning(
+            "No available option meets the stockout deadline. "
+            "The following is the lowest-cost feasible option, "
+            "but it does not prevent the projected shortage."
+        )
+
+        st.write(f"Lowest-cost feasible option: {best['Option']}")
+
+        st.metric(
+            "Estimated extra recovery cost",
+            f"₹{best['Extra recovery cost (₹)']:,.0f}"
+        )
+
+        st.write(
+            f"Expected delivery: {best['Delivery (days)']} day(s). "
+            "Consider expediting, partial shipments, or another "
+            "supplier, and review the production schedule."
+        )
+
+    else:
+        st.error(
+            "No recovery option has enough available units. "
+            "Find another supplier or warehouse and update the "
+            "available quantities."
+        )
+
+    st.caption(
+        "Cost estimates exclude any unentered expenses, taxes, "
+        "quality differences, contractual penalties, and other "
+        "operational constraints. The planner ranks the supplied "
+        "assumptions; it does not automatically place orders. "
+        "Verify costs, stock, and delivery dates before acting."
+    )
+
